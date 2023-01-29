@@ -1,0 +1,16 @@
+---
+- name: "Server configuration"
+  hosts: "all"
+  become: true
+  tasks:
+    - name: "Create .kube"
+      ansible.builtin.file:
+        path: /vagrant/.kube
+        state: directory
+        recurse: true
+    - name: "Update calico"
+      ansible.builtin.shell: |
+        microk8s kubectl apply -f /vagrant/.kube/cni.yaml 
+    - name: "Generate k8s token"
+      ansible.builtin.shell:
+        cmd: microk8s add-node --token-ttl 999999999999 --format token-check > /vagrant/.kube/k8s-token.txt

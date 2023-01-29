@@ -1,0 +1,116 @@
+machines = {
+    :interface => "enp8s0",
+    :public_ip => {
+        :mask => "10.10.10.",
+        :ip_start => 100,
+    },
+    :private_ip => {
+        :mask => "192.168.56.",
+        :ip_start => 20,
+    },
+    :node => {
+        "master" => {
+            :cpus => 4,
+            :ram => 4096,
+            :playbooks => [
+                {
+                    :file => './ansible/microk8s.yaml',
+                    :extra_vars => {
+                        :addons => ["dns"],
+                    }
+                },
+                {
+                    :file => './ansible/master/playbook.yaml',
+                    :extra_vars => {
+                        master_domain: "master"
+                    }
+                }
+            ]
+        },
+        "node-1" => {
+            :cpus => 4,
+            :ram => 4096,
+            :playbooks => [
+                {
+                    :file => './ansible/microk8s.yaml',
+                    :extra_vars => {
+                        :addons => [],
+                    },
+                },
+                {
+                    :file => './ansible/worker/playbook.yaml',
+                    :extra_vars => {
+                        master_domain: "master"
+                    }
+                }
+            ]
+        },
+        "node-2" => {
+            :cpus => 4,
+            :ram => 4096,
+            :playbooks => [
+                {
+                    :file => './ansible/microk8s.yaml',
+                    :extra_vars => {
+                        :addons => [],
+                    },
+                },
+                {
+                    :file => './ansible/worker/playbook.yaml',
+                    :extra_vars => {
+                        master_domain: "master"
+                    }
+                }
+            ]
+        },
+    }
+}
+
+Vagrant.configure("2") do |config|
+    machines[:node].each_with_index do |(node_domain, node_config), index|
+        config.vm.define node_domain do |node|
+
+            node.vm.box = "ubunutu-server-22.04"
+            node.vm.hostname = node_domain
+
+            # Приватная сеть
+            node.vm.network :private_network, 
+                ip: machines[:private_ip][:mask] + "#{machines[:private_ip][:ip_start] + index}"
+
+            #Публичная сеть
+            node.vm.network :public_network, 
+                ip: machines[:public_ip][:mask] + "#{machines[:public_ip][:ip_start] + index}",
+                bridge: machines[:interface]
+
+            #Конфигурирование /etc/hosts
+            node.vm.provision :hosts do |hosts|
+                machines[:node].each_with_index do |(_node_domain, _node_configs), _index|
+                    if _node_domain != node_domain
+                        hosts.add_host machines[:private_ip][:mask] + "#{machines[:private_ip][:ip_start] + _index}", [_node_domain]
+                    end
+                end
+            end
+
+            #Запуск Playbooks для ansible
+            node_config[:playbooks].each do |playbook|
+                node.vm.provision "shell" do |s|
+                    s.inline = "echo playbook file: $1: vars: $2"
+                    s.args   = [playbook[:file], playbook[:extra_vars].to_json]
+                end
+
+                node.vm.provision :ansible do |ansible|
+                    ansible.verbose = "v"
+                    ansible.playbook = playbook[:file]
+                    ansible.extra_vars = playbook[:extra_vars]
+                end
+            end
+
+            node.vm.provider :virtualbox do |vb|
+                vb.gui = false
+                vb.name = node_domain
+                vb.memory = node_config[:ram]
+                vb.cpus = node_config[:cpus]
+            end
+        end
+    end
+end 
