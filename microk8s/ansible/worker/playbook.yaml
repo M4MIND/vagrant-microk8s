@@ -3,13 +3,13 @@
   hosts: "all"
   become: true
   tasks:
-    - name: "Join worker to k8s master"
+    - name: "Join worker to k8s {{master_domain}}"
       register: command_output
       ansible.builtin.shell: |
-        token=$(cat /vagrant/.kube/k8s-token.txt)
-        echo "Worker is joining to -> master"
+        token=$(cat /vagrant/.kube/k8s-token-{{master_domain}}.txt)
+        echo "Worker is joining to -> {{master_domain}}"
         echo "$token"
-        microk8s join master:25000/$token --worker
+        microk8s join {{master_domain}}:25000/$token --worker --skip-verify
         exit 0 
     - debug:
         var: command_output.stdout_lines

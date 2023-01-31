@@ -3,14 +3,21 @@
   hosts: "all"
   become: true
   tasks:
+    - name: Enable microk8s addons
+      ansible.builtin.shell:
+        cmd: "microk8s enable {{item}}"
+      with_items: "{{addons}}"
+    - name: "Update calico"
+      ansible.builtin.shell:
+        microk8s kubectl apply -f /vagrant/calico/cni.yaml
     - name: "Create .kube"
       ansible.builtin.file:
         path: /vagrant/.kube
         state: directory
         recurse: true
-    - name: "Update calico"
+    - name: Create kubectl config
       ansible.builtin.shell: |
-        microk8s kubectl apply -f /vagrant/.kube/cni.yaml 
+        microk8s config > /vagrant/.kube/config-{{privateIp}}
     - name: "Generate k8s token"
       ansible.builtin.shell:
-        cmd: microk8s add-node --token-ttl 999999999999 --format token-check > /vagrant/.kube/k8s-token.txt
+        cmd: microk8s add-node --token-ttl 999999999999 --format token-check > /vagrant/.kube/k8s-token-{{privateIp}}.txt

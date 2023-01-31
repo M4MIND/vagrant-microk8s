@@ -1,0 +1,8 @@
+---
+- name: "Server configuration"
+  hosts: "all"
+  become: true
+  tasks:
+    - name: "Add ingress proxy to dashboard"
+      ansible.builtin.shell:
+        microk8s kubectl apply -f /vagrant/dashboard/dashboard-ingress.yaml

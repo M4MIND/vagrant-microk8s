@@ -1,35 +1,51 @@
+box = "ubuntu-server-22.04"
+
 machines = {
-    :interface => "enp8s0",
-    :public_ip => {
-        :mask => "10.10.10.",
-        :ip_start => 100,
-    },
-    :private_ip => {
-        :mask => "192.168.56.",
-        :ip_start => 20,
-    },
+    :bridgeInterface => "enp8s0",
     :node => {
         "master" => {
-            :cpus => 4,
+            :cpus => 2,
             :ram => 4096,
+            :privateIp => "192.168.56.20",
+            :publicIp => "10.10.10.100",
+            :playbooks => [
+                {
+                    :file => './ansible/microk8s.yaml',
+                    :extra_vars => {}
+                },
+                {
+                    :file => './ansible/master/playbook.yaml',
+                    :extra_vars => {:addons => ["dns", "dashboard", "ingress", "registry"]}
+                },
+                {
+                    :file => './ansible/master/add-rule-ingeress-to-dashboard.yaml',
+                    :extra_vars => {}
+                }
+            ]
+        },
+        "node-0" => {
+            :cpus => 2,
+            :ram => 4096,
+            :privateIp => "192.168.56.30",
             :playbooks => [
                 {
                     :file => './ansible/microk8s.yaml',
                     :extra_vars => {
-                        :addons => ["dns"],
-                    }
+                        :addons => [],
+                    },
                 },
                 {
-                    :file => './ansible/master/playbook.yaml',
+                    :file => './ansible/worker/playbook.yaml',
                     :extra_vars => {
-                        master_domain: "master"
+                        :master_domain => "192.168.56.20"
                     }
                 }
             ]
         },
         "node-1" => {
-            :cpus => 4,
+            :cpus => 2,
             :ram => 4096,
+            :privateIp => "192.168.56.31",
             :playbooks => [
                 {
                     :file => './ansible/microk8s.yaml',
@@ -40,14 +56,15 @@ machines = {
                 {
                     :file => './ansible/worker/playbook.yaml',
                     :extra_vars => {
-                        master_domain: "master"
+                        :master_domain => "192.168.56.20"
                     }
                 }
             ]
         },
         "node-2" => {
-            :cpus => 4,
+            :cpus => 2,
             :ram => 4096,
+            :privateIp => "192.168.56.32",
             :playbooks => [
                 {
                     :file => './ansible/microk8s.yaml',
@@ -58,7 +75,45 @@ machines = {
                 {
                     :file => './ansible/worker/playbook.yaml',
                     :extra_vars => {
-                        master_domain: "master"
+                        :master_domain => "192.168.56.20"
+                    }
+                }
+            ]
+        },
+        "node-3" => {
+            :cpus => 2,
+            :ram => 4096,
+            :privateIp => "192.168.56.33",
+            :playbooks => [
+                {
+                    :file => './ansible/microk8s.yaml',
+                    :extra_vars => {
+                        :addons => [],
+                    },
+                },
+                {
+                    :file => './ansible/worker/playbook.yaml',
+                    :extra_vars => {
+                        :master_domain => "192.168.56.20"
+                    }
+                }
+            ]
+        },
+        "node-4" => {
+            :cpus => 2,
+            :ram => 4096,
+            :privateIp => "192.168.56.34",
+            :playbooks => [
+                {
+                    :file => './ansible/microk8s.yaml',
+                    :extra_vars => {
+                        :addons => [],
+                    },
+                },
+                {
+                    :file => './ansible/worker/playbook.yaml',
+                    :extra_vars => {
+                        :master_domain => "192.168.56.20"
                     }
                 }
             ]
@@ -70,23 +125,31 @@ Vagrant.configure("2") do |config|
     machines[:node].each_with_index do |(node_domain, node_config), index|
         config.vm.define node_domain do |node|
 
-            node.vm.box = "ubunutu-server-22.04"
+            node.vm.box = box
             node.vm.hostname = node_domain
 
-            # Приватная сеть
+            # Private network
             node.vm.network :private_network, 
-                ip: machines[:private_ip][:mask] + "#{machines[:private_ip][:ip_start] + index}"
+                ip: node_config[:privateIp]
 
             #Публичная сеть
-            node.vm.network :public_network, 
-                ip: machines[:public_ip][:mask] + "#{machines[:public_ip][:ip_start] + index}",
-                bridge: machines[:interface]
+            if node_config[:publicIp]
+                node.vm.network :public_network, 
+                    ip: node_config[:publicIp],
+                    bridge: machines[:bridgeInterface]
+            end
 
-            #Конфигурирование /etc/hosts
+            
+            # Add domain-ip /etc/hosts
             node.vm.provision :hosts do |hosts|
                 machines[:node].each_with_index do |(_node_domain, _node_configs), _index|
                     if _node_domain != node_domain
-                        hosts.add_host machines[:private_ip][:mask] + "#{machines[:private_ip][:ip_start] + _index}", [_node_domain]
+                        node.vm.provision "shell" do |s|
+                            s.inline = "echo insert $1 $2 /etc/hosts:"
+                            s.args   = [_node_domain, _node_configs[:privateIp]]
+                        end 
+
+                        hosts.add_host _node_configs[:privateIp], [_node_domain]
                     end
                 end
             end
@@ -95,13 +158,17 @@ Vagrant.configure("2") do |config|
             node_config[:playbooks].each do |playbook|
                 node.vm.provision "shell" do |s|
                     s.inline = "echo playbook file: $1: vars: $2"
-                    s.args   = [playbook[:file], playbook[:extra_vars].to_json]
+                    s.args   = [playbook[:file], {
+                        :privateIp => node_config[:privateIp],
+                }.merge(playbook[:extra_vars]).to_json]
                 end
 
                 node.vm.provision :ansible do |ansible|
                     ansible.verbose = "v"
                     ansible.playbook = playbook[:file]
-                    ansible.extra_vars = playbook[:extra_vars]
+                    ansible.extra_vars = {
+                        :privateIp => node_config[:privateIp],
+                }.merge(playbook[:extra_vars])
                 end
             end
 
