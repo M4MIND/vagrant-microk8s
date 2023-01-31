@@ -62,9 +62,7 @@ machines = {
             :playbooks => [
                 {
                     :file => './ansible/microk8s.yaml', # Install microk8s
-                    :extra_vars => {
-                        :addons => [],
-                    },
+                    :extra_vars => {},
                 },
                 {
                     :file => './ansible/worker/playbook.yaml', # Join worker node to master node
